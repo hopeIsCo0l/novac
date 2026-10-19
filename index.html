@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova · Calculator</title>
+  <meta name="description" content="A sleek, glassy calculator with scientific functions, live preview, and history.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%237c5cff'/%3E%3Cpath d='M16 5l2.6 8.4L27 16l-8.4 2.6L16 27l-2.6-8.4L5 16l8.4-2.6L16 5z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("nova-theme");
+        var theme = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.dataset.theme = theme;
+      } catch (err) {
+        /* keep the default dark theme */
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+    <span class="grid-overlay"></span>
+  </div>
+
+  <div class="app" id="app">
+    <main class="calculator" aria-label="Calculator">
+      <header class="calc-header">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z"/>
+            </svg>
+          </span>
+          <span>Nova</span>
+        </div>
+        <div class="header-tools">
+          <button type="button" class="tool-btn" id="history-toggle" aria-label="Toggle history" aria-expanded="false" aria-controls="history-panel">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+            </svg>
+          </button>
+          <button type="button" class="tool-btn" id="sci-toggle" aria-label="Toggle scientific functions" aria-expanded="false" aria-controls="sci-pad">
+            <span class="fx" aria-hidden="true">ƒx</span>
+          </button>
+          <button type="button" class="tool-btn" id="theme-toggle" aria-label="Switch theme">
+            <svg class="icon-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="display">
+        <div class="display-top">
+          <button type="button" class="angle-chip" id="angle-toggle" title="Toggle angle unit">DEG</button>
+        </div>
+        <div class="expression" id="expression"></div>
+        <div class="result" id="result" aria-live="polite">0</div>
+      </section>
+
+      <div class="sci-pad" id="sci-pad" aria-label="Scientific functions">
+        <button type="button" class="key func" data-action="func" data-value="sin">sin</button>
+        <button type="button" class="key func" data-action="func" data-value="cos">cos</button>
+        <button type="button" class="key func" data-action="func" data-value="tan">tan</button>
+        <button type="button" class="key func" data-action="func" data-value="ln">ln</button>
+        <button type="button" class="key func" data-action="func" data-value="log">log</button>
+        <button type="button" class="key func" data-action="func" data-value="sqrt">√</button>
+        <button type="button" class="key func" data-action="square">x²</button>
+        <button type="button" class="key func" data-action="op" data-value="^">xʸ</button>
+        <button type="button" class="key func" data-action="const" data-value="π">π</button>
+        <button type="button" class="key func" data-action="const" data-value="e">e</button>
+        <button type="button" class="key func" data-action="paren" data-value="(">(</button>
+        <button type="button" class="key func" data-action="paren" data-value=")">)</button>
+      </div>
+
+      <div class="keypad" id="keypad">
+        <button type="button" class="key clear" data-action="clear">AC</button>
+        <button type="button" class="key" data-action="backspace" aria-label="Backspace">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 5H9l-6 7 6 7h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>
+            <path d="M17 9l-5 6M12 9l5 6"/>
+          </svg>
+        </button>
+        <button type="button" class="key op" data-action="percent" aria-label="Percent">%</button>
+        <button type="button" class="key op" data-action="op" data-value="÷">÷</button>
+
+        <button type="button" class="key" data-action="digit" data-value="7">7</button>
+        <button type="button" class="key" data-action="digit" data-value="8">8</button>
+        <button type="button" class="key" data-action="digit" data-value="9">9</button>
+        <button type="button" class="key op" data-action="op" data-value="×">×</button>
+
+        <button type="button" class="key" data-action="digit" data-value="4">4</button>
+        <button type="button" class="key" data-action="digit" data-value="5">5</button>
+        <button type="button" class="key" data-action="digit" data-value="6">6</button>
+        <button type="button" class="key op" data-action="op" data-value="-">−</button>
+
+        <button type="button" class="key" data-action="digit" data-value="1">1</button>
+        <button type="button" class="key" data-action="digit" data-value="2">2</button>
+        <button type="button" class="key" data-action="digit" data-value="3">3</button>
+        <button type="button" class="key op" data-action="op" data-value="+">+</button>
+
+        <button type="button" class="key" data-action="sign" aria-label="Toggle sign">±</button>
+        <button type="button" class="key" data-action="digit" data-value="0">0</button>
+        <button type="button" class="key" data-action="dot">.</button>
+        <button type="button" class="key equals" data-action="equals">=</button>
+      </div>
+    </main>
+
+    <aside class="history-panel" id="history-panel" aria-label="Calculation history">
+      <div class="history-inner">
+        <div class="history-head">
+          <h2 class="history-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+            </svg>
+            History
+          </h2>
+          <button type="button" class="history-clear" id="history-clear">Clear</button>
+        </div>
+        <div class="history-empty" id="history-empty">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/>
+          </svg>
+          <p>Nothing here yet.<br>Your calculations will appear here.</p>
+        </div>
+        <div class="history-list" id="history-list"></div>
+      </div>
+    </aside>
+
+    <div class="scrim" id="scrim" aria-hidden="true"></div>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
