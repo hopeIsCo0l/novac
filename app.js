@@ -7,6 +7,7 @@
   var formatNumber = engine.formatNumber;
   var plainNumber = engine.plainNumber;
   var prettyExpr = engine.prettyExpr;
+  var balanceParens = engine.balanceParens;
 
   var STORAGE = {
     history: "nova-history",
@@ -47,6 +48,8 @@
     historyPanel: document.getElementById("history-panel"),
     historyEmpty: document.getElementById("history-empty"),
     historyClear: document.getElementById("history-clear"),
+    copyBtn: document.getElementById("copy-btn"),
+    announcer: document.getElementById("announcer"),
     scrim: document.getElementById("scrim")
   };
 
@@ -72,7 +75,7 @@
   var state = {
     expr: "",
     completed: null,
-    error: false,
+    error: null,
     angle: read(STORAGE.angle, "DEG") === "RAD" ? "RAD" : "DEG",
     sci: read(STORAGE.sci, "0") === "1",
     history: loadHistory(),
@@ -94,15 +97,6 @@
     }
   }
 
-  function balanceParens(text) {
-    var opens = 0;
-    for (var i = 0; i < text.length; i += 1) {
-      if (text[i] === "(") opens += 1;
-      else if (text[i] === ")") opens = Math.max(0, opens - 1);
-    }
-    return text + new Array(opens + 1).join(")");
-  }
-
   function previewValue(expr) {
     var value = tryEvaluate(balanceParens(expr));
     if (value !== undefined) return value;
@@ -120,6 +114,10 @@
   }
 
   function fitResult() {
+    if (state.error) {
+      els.result.style.fontSize = "1.15rem";
+      return;
+    }
     var length = els.result.textContent.length;
     var size = "3.4rem";
     if (length > 8) size = "2.9rem";
@@ -135,7 +133,7 @@
 
     if (state.error) {
       expressionText = state.expr ? prettyExpr(state.expr) : "";
-      resultText = "Error";
+      resultText = state.error;
     } else if (state.completed) {
       expressionText = prettyExpr(state.completed.expression) + " =";
       resultText = state.completed.formatted;
@@ -149,7 +147,8 @@
 
     els.expression.textContent = expressionText;
     els.result.textContent = resultText;
-    els.result.classList.toggle("error", state.error);
+    els.result.classList.toggle("error", !!state.error);
+    els.result.title = state.error || "";
 
     fitResult();
     els.expression.scrollLeft = els.expression.scrollWidth;
@@ -159,6 +158,89 @@
       void els.result.offsetWidth;
       els.result.classList.add("pop");
     }
+  }
+
+  /* ===== Feedback: announcements, toasts and copying ===== */
+
+  function announce(message) {
+    if (!els.announcer) return;
+    els.announcer.textContent = "";
+    window.setTimeout(function () {
+      els.announcer.textContent = message;
+    }, 30);
+  }
+
+  function showToast(message) {
+    var toast = document.createElement("div");
+    toast.className = "toast";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    window.setTimeout(function () {
+      toast.classList.add("toast-out");
+      window.setTimeout(function () {
+        toast.remove();
+      }, 260);
+    }, 1400);
+  }
+
+  function fallbackCopy(text) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    var copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch (err) {
+      copied = false;
+    }
+    showToast(copied ? "Copied " + text : "Copy failed");
+    area.remove();
+  }
+
+  function currentValueText() {
+    if (state.error) return state.error;
+    if (state.completed) return state.completed.formatted;
+    if (!state.expr) return "";
+    var preview = previewValue(state.expr);
+    return preview === null ? "" : formatNumber(preview);
+  }
+
+  function copyResult() {
+    var text = currentValueText();
+    if (!text) return;
+
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      fallbackCopy(text);
+      return;
+    }
+
+    // The clipboard promise can hang in some browsers, so always resolve
+    // to visible feedback within 600ms.
+    var settled = false;
+    var timer = window.setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      fallbackCopy(text);
+    }, 600);
+
+    navigator.clipboard.writeText(text).then(
+      function () {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        showToast("Copied " + text);
+      },
+      function () {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        fallbackCopy(text);
+      }
+    );
   }
 
   /* ===== History ===== */
@@ -211,7 +293,7 @@
       formatted: formatNumber(item.value)
     };
     state.expr = plainNumber(item.value);
-    state.error = false;
+    state.error = null;
     render(true);
     if (window.matchMedia("(max-width: 900px)").matches) setHistoryOpen(false);
   }
@@ -275,7 +357,7 @@
 
   function beginInput(mode) {
     if (state.error) {
-      state.error = false;
+      state.error = null;
       state.expr = "";
     }
     if (state.completed) {
@@ -353,8 +435,38 @@
 
   function inputConstant(value) {
     beginInput("fresh");
-    if (/[0-9)πe%]$/.test(state.expr)) state.expr += "×";
+    // "e" is left unseparated so that typing 1e3 reads as scientific
+    // notation; the engine still multiplies it by Euler's number.
+    if (value !== "e" && /[0-9)πe%]$/.test(state.expr)) state.expr += "×";
     state.expr += value;
+    render();
+  }
+
+  function inputFactorial() {
+    if (state.completed) {
+      state.expr = plainNumber(state.completed.value);
+      state.completed = null;
+    }
+    if (state.error) {
+      state.error = null;
+      state.expr = "";
+    }
+    if (state.expr === "" || !/[0-9)πe%]$/.test(state.expr)) return;
+    state.expr += "!";
+    render();
+  }
+
+  function inputPow10() {
+    beginInput("continue");
+    if (state.expr !== "" && /[0-9)πe%]$/.test(state.expr)) state.expr += "×";
+    state.expr += "10^";
+    render();
+  }
+
+  function inputExp() {
+    beginInput("continue");
+    if (state.expr !== "" && /[0-9)πe%]$/.test(state.expr)) state.expr += "×";
+    state.expr += "e^";
     render();
   }
 
@@ -386,7 +498,7 @@
       state.completed = null;
     }
     if (state.error) {
-      state.error = false;
+      state.error = null;
       state.expr = "";
     }
     if (state.expr === "" || !/[0-9)πe%]$/.test(state.expr)) return;
@@ -425,7 +537,7 @@
   }
 
   function backspace() {
-    if (state.error) state.error = false;
+    if (state.error) state.error = null;
     if (state.completed) {
       clearAll();
       return;
@@ -451,7 +563,7 @@
   function clearAll() {
     state.expr = "";
     state.completed = null;
-    state.error = false;
+    state.error = null;
     render();
   }
 
@@ -459,7 +571,7 @@
     if (state.completed || !state.expr) return;
 
     try {
-      var value = evaluate(state.expr, { angle: state.angle });
+      var value = evaluate(balanceParens(state.expr), { angle: state.angle });
       if (value === null) return;
 
       var expression = state.expr;
@@ -469,11 +581,14 @@
         formatted: formatNumber(value)
       };
       state.expr = plainNumber(value);
-      state.error = false;
+      state.error = null;
       addHistory(expression, value);
+      announce(state.completed.formatted);
       render(true);
     } catch (err) {
-      state.error = true;
+      state.error =
+        err && err.message ? err.message : "That expression could not be calculated";
+      announce(state.error);
       render();
       els.display.classList.remove("shake");
       void els.display.offsetWidth;
@@ -491,6 +606,9 @@
       case "const": inputConstant(value); break;
       case "paren": inputParen(value); break;
       case "square": inputSquare(); break;
+      case "factorial": inputFactorial(); break;
+      case "pow10": inputPow10(); break;
+      case "exp": inputExp(); break;
       case "sign": toggleSign(); break;
       case "backspace": backspace(); break;
       case "clear": clearAll(); break;
@@ -509,10 +627,30 @@
     }, 110);
   }
 
+  /* Single-key shortcuts for the scientific functions and constants. */
+  var SHORTCUTS = {
+    s: { action: "func", value: "sin" },
+    c: { action: "func", value: "cos" },
+    t: { action: "func", value: "tan" },
+    l: { action: "func", value: "ln" },
+    g: { action: "func", value: "log" },
+    r: { action: "func", value: "sqrt" },
+    a: { action: "func", value: "abs" },
+    e: { action: "const", value: "e" },
+    p: { action: "const", value: "π" }
+  };
+
   function handleKeydown(event) {
+    var key = event.key;
+
+    if ((event.metaKey || event.ctrlKey) && (key === "c" || key === "C")) {
+      copyResult();
+      event.preventDefault();
+      return;
+    }
+
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-    var key = event.key;
     var active = document.activeElement;
 
     if ((key === "Enter" || key === " ") && active && active.closest && active.closest("button")) {
@@ -540,6 +678,10 @@
       inputPercent();
       flashKey('.key[data-action="percent"]');
       event.preventDefault();
+    } else if (key === "!") {
+      inputFactorial();
+      flashKey('.key[data-action="factorial"]');
+      event.preventDefault();
     } else if (key === "(" || key === ")") {
       inputParen(key);
       flashKey('.key[data-action="paren"][data-value="' + key + '"]');
@@ -561,8 +703,17 @@
         clearAll();
       }
       event.preventDefault();
-    } else if (key === "p" || key === "P") {
-      inputConstant("π");
+    } else if (key.length === 1 && SHORTCUTS[key.toLowerCase()]) {
+      var shortcut = SHORTCUTS[key.toLowerCase()];
+      if (shortcut.action === "func") inputFunction(shortcut.value);
+      else inputConstant(shortcut.value);
+      flashKey(
+        '.key[data-action="' +
+          shortcut.action +
+          '"][data-value="' +
+          shortcut.value +
+          '"]'
+      );
       event.preventDefault();
     }
   }
@@ -611,6 +762,7 @@
     els.angleBtn.addEventListener("click", toggleAngle);
     els.sciBtn.addEventListener("click", toggleSci);
     els.historyBtn.addEventListener("click", toggleHistory);
+    if (els.copyBtn) els.copyBtn.addEventListener("click", copyResult);
     els.scrim.addEventListener("click", function () {
       setHistoryOpen(false);
     });

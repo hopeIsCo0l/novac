@@ -1,0 +1,19 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (the app itself ships with none)
+node_modules/
+
+# Local environment
+.env
+.env.*
+
+# Editors
+.idea/
+.vscode/
+*.swp

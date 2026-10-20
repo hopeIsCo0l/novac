@@ -1,18 +1,52 @@
 /* ===== Nova calculator engine =====
  * Pure math utilities: tokenizer, recursive-descent parser, formatting.
  * No DOM dependencies, so it can be tested in Node.
+ *
+ * Conventions:
+ *  - Percent is contextual: `200+10%` is 220, `200-10%` is 180,
+ *    `100x10%` is 10, and a lone `50%` is 0.5.
+ *  - Scientific notation: `1e3` is 1000, `1.5e-2` is 0.015.
+ *  - The `e` key still inserts Euler's number, so `2e` is 2 x e.
+ *  - Functions accept parentheses or a bare argument: `sin(30)` and `sin30`.
  */
 (function (root) {
   "use strict";
 
   var DEG_TO_RAD = Math.PI / 180;
-  var FUNCTION_NAMES = ["sin", "cos", "tan", "ln", "log", "sqrt"];
+  var RAD_TO_DEG = 180 / Math.PI;
+  var FUNCTION_NAMES = [
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "ln",
+    "log",
+    "sqrt",
+    "abs",
+    "exp",
+    "round",
+    "floor",
+    "ceil"
+  ];
 
   function cleanTrig(value) {
     if (Math.abs(value) < 1e-12) return 0;
     if (Math.abs(value - 1) < 1e-12) return 1;
     if (Math.abs(value + 1) < 1e-12) return -1;
     return value;
+  }
+
+  function factorial(value) {
+    if (!Number.isFinite(value)) throw new Error("Factorial needs a finite number");
+    if (value < 0 || !Number.isInteger(value)) {
+      throw new Error("Factorial needs a whole number of 0 or more");
+    }
+    if (value > 170) throw new Error("Factorial is too large to display");
+    var result = 1;
+    for (var i = 2; i <= value; i += 1) result *= i;
+    return result;
   }
 
   function applyFunction(name, arg, angle) {
@@ -29,14 +63,32 @@
         }
         return cleanTrig(Math.tan(arg));
       }
+      case "asin":
+      case "acos":
+      case "atan": {
+        var radians =
+          name === "asin" ? Math.asin(arg) : name === "acos" ? Math.acos(arg) : Math.atan(arg);
+        if (Number.isNaN(radians)) return NaN;
+        return angle === "DEG" ? radians * RAD_TO_DEG : radians;
+      }
       case "ln":
         return Math.log(arg);
       case "log":
         return Math.log10(arg);
       case "sqrt":
         return Math.sqrt(arg);
+      case "abs":
+        return Math.abs(arg);
+      case "exp":
+        return Math.exp(arg);
+      case "round":
+        return Math.round(arg);
+      case "floor":
+        return Math.floor(arg);
+      case "ceil":
+        return Math.ceil(arg);
       default:
-        throw new Error("Unknown function");
+        throw new Error("Unknown function: " + name);
     }
   }
 
@@ -65,14 +117,22 @@
         }
         var rawNumber = source.slice(start, i);
         if (dots > 1 || rawNumber === ".") throw new Error("Malformed number");
+
+        // Scientific notation: 1e3, 1.5E-2 (only when digits follow the sign).
+        var exponentMatch = /^[eE]([+-]?\d+)/.exec(source.slice(i));
+        if (exponentMatch) {
+          rawNumber += exponentMatch[0];
+          i += exponentMatch[0].length;
+        }
+
         tokens.push({ type: "number", value: parseFloat(rawNumber) });
       } else if (ch === "π") {
-        tokens.push({ type: "number", value: Math.PI });
+        tokens.push({ type: "number", value: Math.PI, constant: true });
         i += 1;
       } else if (ch === "√") {
         tokens.push({ type: "func", value: "sqrt" });
         i += 1;
-      } else if ("+-×÷*/^%()".indexOf(ch) !== -1) {
+      } else if ("+-×÷*/^%()!".indexOf(ch) !== -1) {
         tokens.push({ type: "op", value: ch });
         i += 1;
       } else if (isLetter(ch)) {
@@ -80,18 +140,32 @@
         while (i < source.length && isLetter(source[i])) i += 1;
         var name = source.slice(nameStart, i);
         if (name === "e") {
-          tokens.push({ type: "number", value: Math.E });
+          tokens.push({ type: "number", value: Math.E, constant: true });
         } else if (FUNCTION_NAMES.indexOf(name) !== -1) {
           tokens.push({ type: "func", value: name });
         } else {
-          throw new Error("Unknown token");
+          throw new Error("Unknown function: " + name);
         }
       } else {
-        throw new Error("Invalid character");
+        throw new Error("Unexpected character: " + ch);
       }
     }
 
     return tokens;
+  }
+
+  /* Parser nodes carry a little context:
+   *   literal   - the value is a bare number or constant (percent is contextual)
+   *   isPercent - the value came from a `%` suffix and still knows its raw value
+   */
+  function node(value, flags) {
+    var options = flags || {};
+    return {
+      value: value,
+      literal: !!options.literal,
+      isPercent: !!options.isPercent,
+      raw: typeof options.raw === "number" ? options.raw : value
+    };
   }
 
   function Parser(tokens, angle) {
@@ -110,8 +184,8 @@
 
   Parser.prototype.parse = function () {
     var value = this.parseExpression();
-    if (this.pos !== this.tokens.length) throw new Error("Unexpected token");
-    return value;
+    if (this.pos !== this.tokens.length) throw new Error("Unexpected symbol at the end");
+    return value.value;
   };
 
   Parser.prototype.startsValue = function (token) {
@@ -121,32 +195,51 @@
   };
 
   Parser.prototype.parseExpression = function () {
-    var value = this.parseTerm();
+    var left = this.parseTerm();
     while (true) {
       var token = this.peek();
       if (!token || token.type !== "op" || (token.value !== "+" && token.value !== "-")) break;
       this.next();
       var right = this.parseTerm();
-      value = token.value === "+" ? value + right : value - right;
+
+      if (right.isPercent) {
+        // Contextual percent: 10% of the value on the left.
+        var amount = left.value * right.value;
+        left = node(
+          token.value === "+" ? left.value + amount : left.value - amount,
+          {}
+        );
+      } else {
+        left = node(
+          token.value === "+" ? left.value + right.value : left.value - right.value,
+          {}
+        );
+      }
     }
-    return value;
+    return left;
   };
 
   Parser.prototype.parseTerm = function () {
-    var value = this.parseUnary();
+    var left = this.parseUnary();
     while (true) {
       var token = this.peek();
       if (token && token.type === "op" && "×÷*/".indexOf(token.value) !== -1) {
         this.next();
         var right = this.parseUnary();
-        value = token.value === "×" || token.value === "*" ? value * right : value / right;
+        left = node(
+          token.value === "×" || token.value === "*"
+            ? left.value * right.value
+            : left.value / right.value,
+          {}
+        );
       } else if (this.startsValue(token)) {
-        value *= this.parseUnary();
+        var factor = this.parseUnary();
+        left = node(left.value * factor.value, {});
       } else {
         break;
       }
     }
-    return value;
+    return left;
   };
 
   Parser.prototype.parseUnary = function () {
@@ -154,7 +247,7 @@
     if (token && token.type === "op" && (token.value === "+" || token.value === "-")) {
       this.next();
       var value = this.parseUnary();
-      return token.value === "-" ? -value : value;
+      return node(token.value === "-" ? -value.value : value.value, {});
     }
     return this.parsePower();
   };
@@ -165,7 +258,7 @@
     if (token && token.type === "op" && token.value === "^") {
       this.next();
       var exponent = this.parseUnary();
-      return Math.pow(base, exponent);
+      return node(Math.pow(base.value, exponent.value), {});
     }
     return base;
   };
@@ -176,7 +269,14 @@
       var token = this.peek();
       if (token && token.type === "op" && token.value === "%") {
         this.next();
-        value /= 100;
+        if (value.literal) {
+          value = node(value.value / 100, { isPercent: true, raw: value.raw });
+        } else {
+          value = node(value.value / 100, {});
+        }
+      } else if (token && token.type === "op" && token.value === "!") {
+        this.next();
+        value = node(factorial(value.value), {});
       } else {
         break;
       }
@@ -188,25 +288,32 @@
     var token = this.next();
     if (!token) throw new Error("Incomplete expression");
 
-    if (token.type === "number") return token.value;
+    if (token.type === "number") {
+      return node(token.value, { literal: true });
+    }
 
     if (token.type === "func") {
-      var open = this.next();
-      if (!open || open.value !== "(") throw new Error("Expected (");
-      var arg = this.parseExpression();
-      var close = this.next();
-      if (!close || close.value !== ")") throw new Error("Missing )");
-      return applyFunction(token.value, arg, this.angle);
+      var open = this.peek();
+      if (open && open.type === "op" && open.value === "(") {
+        this.next();
+        var arg = this.parseExpression();
+        var close = this.next();
+        if (!close || close.value !== ")") throw new Error("Missing a closing bracket");
+        return node(applyFunction(token.value, arg.value, this.angle), {});
+      }
+      // Bare argument form: sin30, √9.
+      var bare = this.parseUnary();
+      return node(applyFunction(token.value, bare.value, this.angle), {});
     }
 
     if (token.type === "op" && token.value === "(") {
       var value = this.parseExpression();
       var paren = this.next();
-      if (!paren || paren.value !== ")") throw new Error("Missing )");
-      return value;
+      if (!paren || paren.value !== ")") throw new Error("Missing a closing bracket");
+      return node(value.value, {});
     }
 
-    throw new Error("Unexpected token");
+    throw new Error("Unexpected symbol");
   };
 
   function evaluate(expression, options) {
@@ -215,8 +322,23 @@
     var tokens = tokenize(expression);
     if (!tokens.length) return null;
     var value = new Parser(tokens, angle).parse();
-    if (Number.isNaN(value)) throw new Error("Undefined result");
+    if (Number.isNaN(value)) {
+      throw new Error("Undefined result — the value is outside the function's domain");
+    }
     return value;
+  }
+
+  /**
+   * Close any brackets the user left open, so the live preview and the
+   * final answer always agree.
+   */
+  function balanceParens(text) {
+    var opens = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      if (text[i] === "(") opens += 1;
+      else if (text[i] === ")") opens = Math.max(0, opens - 1);
+    }
+    return text + new Array(opens + 1).join(")");
   }
 
   function formatNumber(value) {
@@ -274,10 +396,42 @@
 
   function prettyExpr(raw) {
     if (!raw) return "";
-    var out = "";
 
-    for (var i = 0; i < raw.length; i += 1) {
+    var out = "";
+    var i = 0;
+
+    while (i < raw.length) {
       var ch = raw[i];
+
+      // Numbers (including scientific notation) stay in one piece.
+      if (isDigit(ch) || (ch === "." && isDigit(raw[i + 1] || ""))) {
+        var num = "";
+        while (i < raw.length && (isDigit(raw[i]) || raw[i] === ".")) {
+          num += raw[i];
+          i += 1;
+        }
+        if (raw[i] === "e" || raw[i] === "E") {
+          var j = i + 1;
+          var exp = "";
+          if (raw[j] === "+" || raw[j] === "-") {
+            exp = raw[j];
+            j += 1;
+          }
+          if (isDigit(raw[j] || "")) {
+            exp += raw[j];
+            j += 1;
+            while (j < raw.length && isDigit(raw[j])) {
+              exp += raw[j];
+              j += 1;
+            }
+            num += "e" + exp;
+            i = j;
+          }
+        }
+        out += num;
+        continue;
+      }
+
       var prev = raw[i - 1] || "";
       var isBinary =
         ch === "+" ||
@@ -292,6 +446,7 @@
       } else {
         out += ch;
       }
+      i += 1;
     }
 
     return out
@@ -305,6 +460,7 @@
   var api = {
     evaluate: evaluate,
     tokenize: tokenize,
+    balanceParens: balanceParens,
     formatNumber: formatNumber,
     plainNumber: plainNumber,
     prettyExpr: prettyExpr

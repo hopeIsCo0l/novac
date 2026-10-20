@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nova · Calculator</title>
   <meta name="description" content="A sleek, glassy calculator with scientific functions, live preview, and history.">
+  <meta name="theme-color" content="#0b0d16">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%237c5cff'/%3E%3Cpath d='M16 5l2.6 8.4L27 16l-8.4 2.6L16 27l-2.6-8.4L5 16l8.4-2.6L16 5z' fill='white'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -65,24 +68,40 @@
       <section class="display">
         <div class="display-top">
           <button type="button" class="angle-chip" id="angle-toggle" title="Toggle angle unit">DEG</button>
+          <button type="button" class="copy-btn" id="copy-btn" aria-label="Copy result" title="Copy result (Ctrl / Cmd + C)">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
         </div>
         <div class="expression" id="expression"></div>
-        <div class="result" id="result" aria-live="polite">0</div>
+        <div class="result" id="result">0</div>
       </section>
 
       <div class="sci-pad" id="sci-pad" aria-label="Scientific functions">
         <button type="button" class="key func" data-action="func" data-value="sin">sin</button>
         <button type="button" class="key func" data-action="func" data-value="cos">cos</button>
         <button type="button" class="key func" data-action="func" data-value="tan">tan</button>
+        <button type="button" class="key func" data-action="func" data-value="asin">sin⁻¹</button>
+        <button type="button" class="key func" data-action="func" data-value="acos">cos⁻¹</button>
+
+        <button type="button" class="key func" data-action="func" data-value="atan">tan⁻¹</button>
         <button type="button" class="key func" data-action="func" data-value="ln">ln</button>
         <button type="button" class="key func" data-action="func" data-value="log">log</button>
         <button type="button" class="key func" data-action="func" data-value="sqrt">√</button>
+        <button type="button" class="key func" data-action="func" data-value="abs">|x|</button>
+
         <button type="button" class="key func" data-action="square">x²</button>
         <button type="button" class="key func" data-action="op" data-value="^">xʸ</button>
+        <button type="button" class="key func" data-action="factorial">n!</button>
+        <button type="button" class="key func" data-action="pow10">10ˣ</button>
+        <button type="button" class="key func" data-action="exp">eˣ</button>
+
         <button type="button" class="key func" data-action="const" data-value="π">π</button>
         <button type="button" class="key func" data-action="const" data-value="e">e</button>
         <button type="button" class="key func" data-action="paren" data-value="(">(</button>
         <button type="button" class="key func" data-action="paren" data-value=")">)</button>
+        <button type="button" class="key func" data-action="func" data-value="round">round</button>
       </div>
 
       <div class="keypad" id="keypad">
@@ -142,7 +161,16 @@
     <div class="scrim" id="scrim" aria-hidden="true"></div>
   </div>
 
+  <p class="sr-only" id="announcer" role="status" aria-live="polite"></p>
+
   <script src="engine.js"></script>
   <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>

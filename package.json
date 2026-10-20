@@ -1,0 +1,16 @@
+{
+  "name": "novac",
+  "version": "1.1.0",
+  "private": true,
+  "description": "A polished, glassmorphic calculator web app built with plain HTML, CSS, and JavaScript.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "serve": "node tools/serve.mjs",
+    "test": "node --test test/",
+    "icons": "bash tools/make-icons.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
